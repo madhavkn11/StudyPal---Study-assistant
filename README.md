@@ -185,19 +185,24 @@ ChromaDB (Vector Store)
 <tr>
 <td align="center">
 <b>🧬 Biology Assistant</b><br><br>
-<img src="screenshots/SP-3.png" width="450">
+<img src="screenshots/SP-1.png" width="450">
+</td>
+
+<td align="center">
+<b>💻 Operating Systems Assistant</b><br><br>
+<img src="screenshots/SP-2.png" width="450">
 </td>
 </tr>
 
 <tr>
 <td align="center">
-<b>💻 Operating Systems Assistant</b><br><br>
-<img src="screenshots/SP-1.png" width="450">
+<b>🎥 Biology Video Recommendation</b><br><br>
+<img src="screenshots/SP-3.png" width="450">
 </td>
 
 <td align="center">
-<b>🎥 YouTube Recommendations</b><br><br>
-<img src="screenshots/SP-2.png" width="450">
+<b>🎥 Operating Systems Video Recommendation</b><br><br>
+<img src="screenshots/SP-4.png" width="450">
 </td>
 </tr>
 </table>

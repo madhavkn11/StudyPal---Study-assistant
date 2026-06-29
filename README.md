@@ -215,4 +215,3 @@ GitHub: madhavkn11
 
 ---
 
-*If this project helped you, consider giving it a ⭐ on GitHub — it helps others find it too.*

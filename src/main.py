@@ -18,18 +18,25 @@ DEVICE = "cpu"  # Default to 'cpu' if not set
 working_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(working_dir)
 
-subjects_list = ["Biology", "Physics", "Chemistry"]
+subjects_list = [
+    "Biology (Class 12)",
+    "Operating Systems (B.Tech)"
+]
 
 # Helper to setup vectorstore and chat_chain
 def get_vector_db_path(chapter, subject):
+    if subject == "Operating Systems (B.Tech)":
+        return f"{parent_dir}/vector_db/operating_systems_vector_db"
+
     if chapter == "All Chapters":
-        return f"{parent_dir}/vector_db/class_12_{subject.lower()}_vector_db"
+        return f"{parent_dir}/vector_db/class_12_biology_vector_db"
+
     return f"{parent_dir}/chapters_vector_db/{chapter}"
 
 def setup_chain(selected_chapter, selected_subject):
     vector_db_path = get_vector_db_path(selected_chapter, selected_subject)
     embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-mpnet-base-v2",
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
         model_kwargs={"device": "cpu"}
     )
     vectorstore = Chroma(persist_directory=vector_db_path, embedding_function=embeddings)
@@ -60,18 +67,19 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "video_history" not in st.session_state:
     st.session_state.video_history = []
-
 selected_subject = st.selectbox(
-    label="Select a Subject from class 12",
+    label="Select a Subject",
     options=subjects_list,
     index=None
 )
-
 if selected_subject:
-    chapter_list = get_chapter_list(selected_subject) + ["All Chapters"]
+    chapter_list = get_chapter_list(selected_subject)
+
+    if selected_subject != "Operating Systems":
+        chapter_list.append("All Chapters")
 
     selected_chapter = st.selectbox(
-        label=f"Select a Chapter from class 12 - {selected_subject}",
+        label=f"Select a Topic - {selected_subject}",
         options=chapter_list,
         index=0
     )

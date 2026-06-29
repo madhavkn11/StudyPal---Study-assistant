@@ -15,8 +15,16 @@ data_dir = f"{parent_dir}/data"
 vector_db_dir = f"{parent_dir}/vector_db"
 chapters_vector_db_dir = f"{parent_dir}/chapters_vector_db"
 
-embedding = HuggingFaceEmbeddings()
-text_splitter = CharacterTextSplitter(chunk_size=2000, chunk_overlap=500)
+embedding = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"}
+)
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=50
+)
 
 
 def vectorize_book_and_store_to_db(class_subject_name, vector_db_name):

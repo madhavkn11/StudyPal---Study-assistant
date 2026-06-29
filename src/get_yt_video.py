@@ -1,17 +1,21 @@
-from youtubesearchpython import VideosSearch
-
+from yt_dlp import YoutubeDL
 
 def get_yt_video_link(query):
-    videos_search = VideosSearch(query=query, limit=3)
-    result = videos_search.result()
+    ydl_opts = {
+        "quiet": True,
+        "extract_flat": True,
+        "skip_download": True,
+    }
 
-    video_titles = [video['title'] for video in result['result']]
-    video_links = [video['link'] for video in result['result']]
+    with YoutubeDL(ydl_opts) as ydl:
+        results = ydl.extract_info(f"ytsearch3:{query}", download=False)
+
+    video_titles = []
+    video_links = []
+
+    for video in results.get("entries", []):
+        if video.get("id"):
+            video_titles.append(video.get("title", "No Title"))
+            video_links.append(f"https://www.youtube.com/watch?v={video['id']}")
 
     return video_titles, video_links
-
-
-# user_query = "Explain Adaptive Radiation"
-# video_titles, video_links = get_yt_video_link(user_query)
-#
-# print(video_titles, video_links)

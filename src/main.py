@@ -35,11 +35,19 @@ def get_vector_db_path(chapter, subject):
 
 def setup_chain(selected_chapter, selected_subject):
     vector_db_path = get_vector_db_path(selected_chapter, selected_subject)
+
+    print("Vector DB Path:", vector_db_path)
+    print("Folder Exists:", os.path.exists(vector_db_path))
+
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
         model_kwargs={"device": "cpu"}
     )
-    vectorstore = Chroma(persist_directory=vector_db_path, embedding_function=embeddings)
+
+    vectorstore = Chroma(
+        persist_directory=vector_db_path,
+        embedding_function=embeddings
+    )
     llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
     memory = ConversationBufferMemory(llm=llm, output_key='answer', memory_key='chat_history', return_messages=True)
     chain = ConversationalRetrievalChain.from_llm(
@@ -57,39 +65,54 @@ def setup_chain(selected_chapter, selected_subject):
 st.set_page_config(
     page_title="StudyPal",
     page_icon="🌀",
-    layout="centered"
+    layout="wide"
 )
 
-st.title("📚 Study Pal")
+st.title("📚 StudyPal AI")
+
+st.caption(
+    "AI-powered RAG Study Assistant with YouTube Recommendations"
+)
 
 # Initialize the chat history and video history as session state in Streamlit
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "video_history" not in st.session_state:
     st.session_state.video_history = []
-selected_subject = st.selectbox(
-    label="Select a Subject",
-    options=subjects_list,
-    index=None
-)
-if selected_subject:
-    chapter_list = get_chapter_list(selected_subject)
+with st.sidebar:
+    st.header("📖 Study Settings")
 
-    if selected_subject != "Operating Systems":
-        chapter_list.append("All Chapters")
-
-    selected_chapter = st.selectbox(
-        label=f"Select a Topic - {selected_subject}",
-        options=chapter_list,
-        index=0
+    selected_subject = st.selectbox(
+        "Select Subject",
+        subjects_list,
+        index=None
     )
 
-    if selected_chapter:
-        # Reset chat_chain if chapter changes
-        if st.session_state.get('selected_chapter') != selected_chapter:
-            st.session_state.chat_chain = setup_chain(selected_chapter, selected_subject)
-        st.session_state.selected_chapter = selected_chapter
+    if selected_subject:
+        chapter_list = get_chapter_list(selected_subject)
 
+        if selected_subject != "Operating Systems (B.Tech)":
+            chapter_list.append("All Chapters")
+
+        selected_chapter = st.selectbox(
+            "Select Topic",
+            chapter_list,
+            index=0
+        )
+        if (
+                st.session_state.get("selected_subject") != selected_subject
+                or st.session_state.get("selected_chapter") != selected_chapter
+        ):
+            st.session_state.chat_chain = setup_chain(
+                selected_chapter,
+                selected_subject
+            )
+
+            st.session_state.chat_history = []
+            st.session_state.video_history = []
+
+        st.session_state.selected_subject = selected_subject
+        st.session_state.selected_chapter = selected_chapter
 # Display previous messages
 for idx, message in enumerate(st.session_state.chat_history):
     with st.chat_message(message["role"]):
@@ -98,33 +121,81 @@ for idx, message in enumerate(st.session_state.chat_history):
         if message["role"] == "assistant" and idx < len(st.session_state.video_history):
             video_refs = st.session_state.video_history[idx]
             if video_refs:
-                st.subheader("Video Reference")
+                st.subheader("🎥 Recommended Videos")
+
                 for title, link in video_refs:
-                    st.info(f"{title}\n\nLink: {link}")
+                    st.markdown(f"**{title}**")
+                    st.video(link)
+                    st.link_button(
+                        "▶ Watch on YouTube",
+                        link,
+                        use_container_width=True
+                    )
 
 # Input field for user's message
 user_input = st.chat_input("Ask AI")
 
-if user_input:
-    st.session_state.chat_history.append({"role": "user", "content": user_input})
-    st.session_state.video_history.append(None)  # No video refs for user
+if user_input and "chat_chain" in st.session_state:
+
+    st.session_state.chat_history.append(
+        {"role": "user", "content": user_input}
+    )
+    st.session_state.video_history.append(None)
 
     with st.chat_message("user"):
         st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        response = st.session_state.chat_chain({"question": user_input})
-        st.markdown(response['answer'])
 
-        search_query = ', '.join([item["content"] for item in st.session_state.chat_history if item["role"] == "user"])
+        with st.spinner("🤖 Thinking..."):
+            response = st.session_state.chat_chain(
+                {"question": user_input}
+            )
 
-        video_titles, video_links = get_yt_video_link(search_query)
+        st.markdown(response["answer"])
 
-        st.subheader("Video Reference")
+        search_query = user_input
+
+        try:
+            video_titles, video_links = get_yt_video_link(search_query)
+
+        except Exception:
+            video_titles = []
+            video_links = []
+
         video_refs = []
-        for i in range(3):
-            st.info(f"{video_titles[i]}\n\nLink: {video_links[i]}")
-            video_refs.append((video_titles[i], video_links[i]))
 
-        st.session_state.chat_history.append({"role": "assistant", "content": response['answer']})
+        if video_titles:
+
+            st.divider()
+            st.subheader("🎥 Recommended Videos")
+            for i, (title, link) in enumerate(zip(video_titles, video_links)):
+                st.markdown(f"**{title}**")
+
+                st.video(link)
+
+                st.link_button(
+                    "▶ Watch on YouTube",
+                    link,
+                    use_container_width=True,
+                    
+                )
+
+                video_refs.append((title, link))
+
+        else:
+
+            st.info("No related videos found.")
+
+        st.session_state.chat_history.append(
+            {
+                "role": "assistant",
+                "content": response["answer"]
+            }
+        )
+
         st.session_state.video_history.append(video_refs)
+
+elif user_input:
+
+    st.warning("⚠️ Please select a subject and topic first.")

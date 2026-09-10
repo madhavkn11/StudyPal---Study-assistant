@@ -211,7 +211,8 @@ ChromaDB (Vector Store)
 ## Author
 
 **Madhav Karthik Nambi**  
-GitHub: madhavkn11
+GitHub: madhavkn11  
+
 Live link : https://studypal---study-assistant.streamlit.app/
 ---
 

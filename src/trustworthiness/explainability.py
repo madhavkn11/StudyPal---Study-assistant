@@ -68,6 +68,7 @@ def build_decision_trace(
     threshold: float,
     strict_grounding: bool,
     abstained: bool,
+    used_general_fallback: bool = False,
     faithfulness_score: Optional[float] = None,
     trust_level: str = "",
 ) -> List[Dict[str, str]]:
@@ -125,7 +126,27 @@ def build_decision_trace(
             {
                 "stage": "4. Grounding & Abstention Gate",
                 "status": "ABSTAINED",
-                "detail": "Evidence below threshold — abstained to prevent hallucination.",
+                "detail": "Evidence below threshold in Strict Abstention mode — abstained to prevent hallucination.",
+            }
+        )
+        return trace
+
+    if used_general_fallback:
+        trace.append(
+            {
+                "stage": "4. Epistemic Fallback (General Academic Knowledge)",
+                "status": "DISCLOSED",
+                "detail": (
+                    f"Top textbook similarity ({top_retrieval_score:.0%}) was below threshold ({threshold:.0%}); "
+                    "answered via Transparent Fallback without fabricating textbook citations."
+                ),
+            }
+        )
+        trace.append(
+            {
+                "stage": "5. Output Safety & Provenance Disclosure",
+                "status": trust_level or "DISCLOSED",
+                "detail": "Verified output safety & zero fabricated citations; labeled response for student verification.",
             }
         )
         return trace

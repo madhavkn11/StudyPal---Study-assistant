@@ -37,6 +37,16 @@ STRICT GROUNDING RULES:
 6. Maintain a clear, neutral, unbiased, student-friendly academic tone.
 """
 
+TRANSPARENT_FALLBACK_SYSTEM_PROMPT = """You are StudyPal, a trustworthy and helpful AI study assistant.
+
+TRANSPARENT FALLBACK RULES:
+1. The student's question was not strongly matched in the currently indexed textbook PDF excerpts.
+2. Provide a clear, accurate, well-structured educational explanation using established academic knowledge for the selected subject.
+3. DO NOT fabricate or invent [S1], [S2], or textbook page citations for facts that do not appear in the provided excerpts.
+4. If any provided textbook excerpt partially relates to the question, you may cite that specific excerpt accurately; otherwise answer clearly without fake citations.
+5. Keep the explanation student-friendly, neutral, and factually careful — explicitly note any caveats or areas where the student should double-check their syllabus textbook.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Data Models
@@ -531,4 +541,52 @@ def compute_trust_metrics(
         invalid_citations=invalid_ids,
         uncertainty_warning=" ".join(warnings),
         claims=claims,
+    )
+
+
+def build_fallback_trust_metrics(
+    *,
+    answer: str,
+    scored_docs: List[Tuple[Any, float]],
+    threshold: float,
+    safety_passed: bool = True,
+) -> TrustMetrics:
+    """
+    Build epistemically honest TrustMetrics for Transparent General-Knowledge Fallback.
+    Never inflates textbook faithfulness or allows fabricated [S#] citations.
+    """
+    top_score = scored_docs[0][1] if scored_docs else 0.0
+    _, valid_ids, invalid_ids = verify_citations(answer, len(scored_docs))
+    # In general fallback mode, avoiding fabricated citations is honest behavior
+    citation_integrity = 0.0 if invalid_ids else 1.0
+    safety_score = 1.0 if safety_passed else 0.0
+
+    # Transparently calibrated moderate score reflecting general-knowledge (non-textbook) basis
+    composite = round(
+        max(0.0, min(0.72, 0.35 + 0.30 * top_score + 0.15 * safety_score - 0.25 * len(invalid_ids))),
+        4,
+    )
+
+    warning = (
+        f"Transparent General-Knowledge Fallback: highest textbook similarity was {top_score:.0%} "
+        f"(below your {threshold:.0%} grounding threshold). Answer is generated from general academic "
+        "knowledge rather than your indexed PDF pages — please cross-check with your full textbook."
+    )
+    if invalid_ids:
+        warning += f" Invalid citation(s) flagged: {', '.join(invalid_ids)}."
+
+    return TrustMetrics(
+        retrieval_score=round(top_score, 4),
+        faithfulness_score=round(top_score, 4),
+        citation_score=citation_integrity,
+        safety_score=safety_score,
+        composite_trust_score=composite,
+        trust_level="Blocked" if not safety_passed else "General Knowledge (Verify)",
+        supported_claims=0,
+        partial_claims=0,
+        unsupported_claims=0,
+        total_claims=0,
+        invalid_citations=invalid_ids,
+        uncertainty_warning=warning,
+        claims=[],
     )

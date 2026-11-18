@@ -23,8 +23,10 @@ from .audit import TrustAuditLogger
 from .explainability import build_decision_trace, format_source_provenance
 from .grounding import (
     GROUNDED_SYSTEM_PROMPT,
+    TRANSPARENT_FALLBACK_SYSTEM_PROMPT,
     TrustMetrics,
     build_abstention_response,
+    build_fallback_trust_metrics,
     build_grounded_context,
     compute_trust_metrics,
     is_abstention_text,
@@ -41,6 +43,7 @@ from .guardrails import (
 @dataclass
 class PipelineConfig:
     strict_grounding: bool = True
+    fallback_on_low_evidence: bool = False
     min_retrieval_score: float = 0.30
     top_k: int = 4
     enable_pii_redaction: bool = True
@@ -91,8 +94,14 @@ class TrustworthyRAGPipeline:
         context_block: str,
         chat_history: Optional[List[Dict[str, str]]] = None,
         max_turns: int = 4,
+        use_fallback_prompt: bool = False,
     ) -> List[Any]:
-        messages: List[Any] = [SystemMessage(content=GROUNDED_SYSTEM_PROMPT)]
+        sys_prompt = (
+            TRANSPARENT_FALLBACK_SYSTEM_PROMPT
+            if use_fallback_prompt
+            else GROUNDED_SYSTEM_PROMPT
+        )
+        messages: List[Any] = [SystemMessage(content=sys_prompt)]
 
         if chat_history:
             recent = chat_history[-(max_turns * 2) :]
@@ -106,16 +115,28 @@ class TrustworthyRAGPipeline:
                 elif role == "assistant":
                     messages.append(AIMessage(content=content[:1200]))
 
-        user_prompt = (
-            f"Subject: {self.subject}\n"
-            f"Topic/Chapter Scope: {self.chapter}\n\n"
-            f"Context (Numbered Textbook Excerpts):\n"
-            f"{context_block}\n\n"
-            f"Student Question: {sanitized_query}\n\n"
-            "Instructions: Answer clearly and concisely using ONLY the numbered textbook excerpts "
-            "above, citing [S1], [S2], etc. inline for every factual statement. If the excerpts do not "
-            "support an answer, explicitly abstain."
-        )
+        if use_fallback_prompt:
+            user_prompt = (
+                f"Subject: {self.subject}\n"
+                f"Selected Chapter Scope: {self.chapter}\n\n"
+                f"Optional Retrieved Excerpts (low similarity — use only if genuinely relevant):\n"
+                f"{context_block or '(No strongly matching excerpts found.)'}\n\n"
+                f"Student Question: {sanitized_query}\n\n"
+                "Instructions: Provide a clear, accurate, student-friendly academic answer "
+                "using established subject knowledge. Do NOT invent [S1]/[S2] citations for facts "
+                "not present in the excerpts above."
+            )
+        else:
+            user_prompt = (
+                f"Subject: {self.subject}\n"
+                f"Topic/Chapter Scope: {self.chapter}\n\n"
+                f"Context (Numbered Textbook Excerpts):\n"
+                f"{context_block}\n\n"
+                f"Student Question: {sanitized_query}\n\n"
+                "Instructions: Answer clearly and concisely using ONLY the numbered textbook excerpts "
+                "above, citing [S1], [S2], etc. inline for every factual statement. If the excerpts do not "
+                "support an answer, explicitly abstain."
+            )
         messages.append(HumanMessage(content=user_prompt))
         return messages
 
@@ -211,12 +232,12 @@ class TrustworthyRAGPipeline:
         top_score = scored_docs[0][1] if scored_docs else 0.0
 
         # ------------------------------------------------------------------
-        # Stage 4: Pre-Generation Grounding / Abstention Gate
+        # Stage 4: Pre-Generation Grounding / Abstention vs Transparent Fallback
         # ------------------------------------------------------------------
-        should_abstain = (not scored_docs) or (
-            cfg.strict_grounding and top_score < cfg.min_retrieval_score
-        )
-        if should_abstain:
+        low_evidence = (not scored_docs) or (top_score < cfg.min_retrieval_score)
+        should_hard_abstain = low_evidence and cfg.strict_grounding and (not cfg.fallback_on_low_evidence)
+
+        if should_hard_abstain:
             abstention_answer, metrics = build_abstention_response(
                 query=guard.sanitized_query,
                 subject=self.subject,
@@ -271,18 +292,36 @@ class TrustworthyRAGPipeline:
             )
 
         # ------------------------------------------------------------------
-        # Stage 5: Grounded LLM Synthesis & Output Safety Audit
+        # Stage 5: Grounded (or Transparent Fallback) LLM Synthesis & Output Audit
         # ------------------------------------------------------------------
-        context_block = build_grounded_context(scored_docs)
+        use_general_fallback = low_evidence and (
+            cfg.fallback_on_low_evidence or not cfg.strict_grounding
+        )
+        context_block = build_grounded_context(scored_docs) if scored_docs else ""
         messages = self._build_messages(
             sanitized_query=guard.sanitized_query,
             context_block=context_block,
             chat_history=chat_history,
             max_turns=cfg.max_history_turns,
+            use_fallback_prompt=use_general_fallback,
         )
 
         llm_response = self.llm.invoke(messages)
         raw_answer = getattr(llm_response, "content", str(llm_response)).strip()
+
+        # If grounded prompt still returned an abstention while fallback mode is enabled,
+        # retry cleanly with Transparent General-Knowledge Fallback so the student gets an answer.
+        if (not use_general_fallback) and cfg.fallback_on_low_evidence and is_abstention_text(raw_answer):
+            use_general_fallback = True
+            fallback_msgs = self._build_messages(
+                sanitized_query=guard.sanitized_query,
+                context_block=context_block,
+                chat_history=chat_history,
+                max_turns=cfg.max_history_turns,
+                use_fallback_prompt=True,
+            )
+            llm_response = self.llm.invoke(fallback_msgs)
+            raw_answer = getattr(llm_response, "content", str(llm_response)).strip()
 
         out_audit = audit_llm_output(raw_answer)
         if out_audit.flags:
@@ -292,20 +331,33 @@ class TrustworthyRAGPipeline:
         # ------------------------------------------------------------------
         # Stage 6: Post-Generation Claim Faithfulness & Trust Calibration
         # ------------------------------------------------------------------
-        embed_fn = getattr(self.embeddings, "embed_documents", None)
-        metrics = compute_trust_metrics(
-            answer=final_answer,
-            scored_docs=scored_docs,
-            embed_fn=embed_fn,
-            safety_passed=out_audit.safe,
-        )
-
-        llm_abstained = is_abstention_text(final_answer)
-        decision = (
-            "blocked_output_safety"
-            if not out_audit.safe
-            else ("abstained" if llm_abstained else "answered")
-        )
+        if use_general_fallback:
+            metrics = build_fallback_trust_metrics(
+                answer=final_answer,
+                scored_docs=scored_docs,
+                threshold=cfg.min_retrieval_score,
+                safety_passed=out_audit.safe,
+            )
+            llm_abstained = False
+            decision = (
+                "blocked_output_safety"
+                if not out_audit.safe
+                else "answered_general_fallback"
+            )
+        else:
+            embed_fn = getattr(self.embeddings, "embed_documents", None)
+            metrics = compute_trust_metrics(
+                answer=final_answer,
+                scored_docs=scored_docs,
+                embed_fn=embed_fn,
+                safety_passed=out_audit.safe,
+            )
+            llm_abstained = is_abstention_text(final_answer)
+            decision = (
+                "blocked_output_safety"
+                if not out_audit.safe
+                else ("abstained" if llm_abstained else "answered")
+            )
 
         trace = build_decision_trace(
             pii_redacted_count=guard.pii_redaction_count,
@@ -315,8 +367,9 @@ class TrustworthyRAGPipeline:
             retrieved_count=len(scored_docs),
             top_retrieval_score=top_score,
             threshold=cfg.min_retrieval_score,
-            strict_grounding=cfg.strict_grounding,
+            strict_grounding=cfg.strict_grounding and not cfg.fallback_on_low_evidence,
             abstained=llm_abstained,
+            used_general_fallback=use_general_fallback,
             faithfulness_score=metrics.faithfulness_score,
             trust_level=metrics.trust_level,
         )
@@ -331,7 +384,7 @@ class TrustworthyRAGPipeline:
                 chapter=self.chapter,
                 sanitized_query=guard.sanitized_query,
                 decision=decision,
-                strict_grounding=cfg.strict_grounding,
+                strict_grounding=cfg.strict_grounding and not cfg.fallback_on_low_evidence,
                 pii_redacted_count=guard.pii_redaction_count,
                 pii_entities=guard.pii_entities,
                 guardrail_rules=out_audit.flags,
@@ -345,9 +398,10 @@ class TrustworthyRAGPipeline:
                 latency_ms=latency_ms,
             )
 
+        answered_ok = decision in ("answered", "answered_general_fallback")
         yt_query = (
             sanitize_search_query(guard.sanitized_query, subject=self.subject)
-            if decision == "answered"
+            if answered_ok
             else ""
         )
 
@@ -363,5 +417,5 @@ class TrustworthyRAGPipeline:
             decision_trace=trace,
             warnings=warnings,
             latency_ms=latency_ms,
-            show_videos=(decision == "answered"),
+            show_videos=answered_ok,
         )

@@ -22,6 +22,12 @@ def _natural_sort_key(text: str):
     ]
 
 
+BIOLOGY_CHAPTER_TITLES = {
+    "Ch 6": "Ch 6 - Evolution",
+    "Ch 12": "Ch 12 - Ecosystem",
+}
+
+
 def get_chapter_list(selected_subject: str) -> List[str]:
     if selected_subject == "Operating Systems (B.Tech)":
         return list(OS_CHAPTER_LABELS)
@@ -49,6 +55,8 @@ def get_chapter_list(selected_subject: str) -> List[str]:
         if file.lower().endswith(".pdf")
     ]
     chapters_list.sort(key=_natural_sort_key)
+    if subject_name == "biology":
+        chapters_list = [BIOLOGY_CHAPTER_TITLES.get(ch, ch) for ch in chapters_list]
     return chapters_list
 
 
@@ -56,7 +64,6 @@ def map_chapter_to_filter(selected_chapter: Optional[str], selected_subject: str
     """Map UI chapter display name to exact ChromaDB metadata `chapter` key."""
     if not selected_chapter or selected_chapter == "All Chapters":
         return None
-    if selected_subject == "Operating Systems (B.Tech)":
-        # "OS Part 1 - Introduction, OS Structures" -> "OS Part 1"
-        return selected_chapter.split(" - ")[0].strip()
-    return selected_chapter.strip()
+    # "OS Part 1 - Introduction, OS Structures" -> "OS Part 1"
+    # "Ch 6 - Evolution" -> "Ch 6"
+    return selected_chapter.split(" - ")[0].strip()

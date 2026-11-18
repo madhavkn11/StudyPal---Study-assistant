@@ -134,7 +134,11 @@ class TrustAuditLogger:
         feedback = self.load_feedback_records()
 
         total = len(records)
-        answered = [r for r in records if r.get("decision") == "answered"]
+        answered = [
+            r
+            for r in records
+            if r.get("decision") in ("answered", "answered_general_fallback")
+        ]
         abstained = [r for r in records if r.get("decision") == "abstained"]
         blocked = [
             r for r in records if str(r.get("decision", "")).startswith("blocked_")

@@ -72,7 +72,8 @@ def get_vector_db_path(chapter: str, subject: str) -> str:
     if chapter == "All Chapters":
         return os.path.join(parent_dir, "vector_db", "class_12_biology_vector_db")
 
-    chapter_db = os.path.join(parent_dir, "chapters_vector_db", chapter)
+    raw_chapter = map_chapter_to_filter(chapter, subject) or chapter
+    chapter_db = os.path.join(parent_dir, "chapters_vector_db", raw_chapter)
     if os.path.exists(chapter_db):
         return chapter_db
     return os.path.join(parent_dir, "vector_db", "class_12_biology_vector_db")
@@ -135,9 +136,11 @@ def build_pipeline(selected_chapter: str, selected_subject: str) -> TrustworthyR
 # ---------------------------------------------------------------------------
 def _trust_badge(level: str, score: float) -> str:
     if level == "High Trust":
-        return f"🟢 **High Trust** ({score:.0%})"
+        return f"🟢 **High Trust — Textbook Grounded** ({score:.0%})"
     if level == "Medium Trust":
         return f"🟡 **Medium Trust — Verify Sources** ({score:.0%})"
+    if level == "General Knowledge (Verify)":
+        return f"🟡 **General Knowledge Fallback — Verify with Full Textbook** ({score:.0%})"
     if level == "Abstained":
         return "🛡️ **Safe Abstention** (Prevented Hallucination)"
     if level == "Blocked":
@@ -183,7 +186,7 @@ def render_trust_panel(msg: Dict[str, Any], msg_idx: int, audit_logger: TrustAud
     for w in warnings:
         st.info(f"🛡️ {w}")
     if metrics.get("uncertainty_warning"):
-        if metrics["trust_level"] in ("Abstained", "Medium Trust"):
+        if metrics["trust_level"] in ("Abstained", "Medium Trust", "General Knowledge (Verify)"):
             st.warning(f"⚠️ {metrics['uncertainty_warning']}")
         elif metrics["trust_level"] in ("Low Trust", "Blocked"):
             st.error(f"⚠️ {metrics['uncertainty_warning']}")
@@ -368,21 +371,38 @@ with st.sidebar:
         st.session_state.chat_history = []
         st.session_state.video_history = []
 
+    try:
+        indexed_chunks = st.session_state.rag_pipeline.vectorstore._collection.count()
+    except Exception:
+        indexed_chunks = 0
+    st.caption(f"📚 Indexed Textbook Chunks: **{indexed_chunks:,}**")
+
     st.divider()
     st.header("🛡️ Trustworthiness Controls")
 
-    strict_grounding = st.toggle(
-        "Strict Grounding & Abstention",
-        value=True,
-        help="Automatically abstain instead of guessing when textbook similarity is below threshold.",
+    grounding_policy = st.radio(
+        "Low-Evidence Grounding Policy",
+        [
+            "Transparent Fallback (Answer + Disclose)",
+            "Strict Abstention (Textbook Only)",
+        ],
+        index=0,
+        help=(
+            "Transparent Fallback answers any subject question even when textbook similarity is below "
+            "threshold, while clearly disclosing it used general academic knowledge (no fake citations). "
+            "Strict Abstention refuses whenever textbook similarity is below threshold."
+        ),
     )
+    strict_grounding = grounding_policy == "Strict Abstention (Textbook Only)"
+    fallback_on_low_evidence = not strict_grounding
+
     min_retrieval_score = st.slider(
         "Min Grounding Relevance Threshold",
         min_value=0.15,
         max_value=0.60,
         value=0.30,
         step=0.05,
-        help="Higher values enforce stricter textbook alignment and stronger out-of-context abstention.",
+        help="Above this score, StudyPal uses strictly cited textbook excerpts; below it, applies your selected Grounding Policy.",
     )
     top_k = st.slider(
         "Textbook Excerpts Retrieved (Top-K)",
@@ -421,11 +441,14 @@ tab_chat, tab_dashboard, tab_card = st.tabs(
 # TAB 1: TRUSTWORTHY STUDY CHAT
 # ===========================================================================
 with tab_chat:
+    policy_label = (
+        "Strict Abstention" if strict_grounding else "Transparent Fallback"
+    )
     st.info(
         f"**Active Scope:** `{selected_subject}` → `{selected_chapter}` | "
-        f"**Strict Grounding:** `{'ON' if strict_grounding else 'OFF'}` (`≥ {min_retrieval_score:.0%}`) | "
+        f"**Policy:** `{policy_label}` (Textbook threshold `≥ {min_retrieval_score:.0%}`) | "
         f"**Privacy Shield:** `{'ON' if enable_pii_redaction else 'OFF'}` — "
-        "Every answer is verified claim-by-claim against cited textbook pages."
+        "Textbook-matched answers include inline `[S#]` citations & claim verification; low-match answers transparently disclose general-knowledge fallback."
     )
 
     for idx, message in enumerate(st.session_state.chat_history):
@@ -443,6 +466,7 @@ with tab_chat:
     if user_input:
         pipeline_cfg = PipelineConfig(
             strict_grounding=strict_grounding,
+            fallback_on_low_evidence=fallback_on_low_evidence,
             min_retrieval_score=min_retrieval_score,
             top_k=top_k,
             enable_pii_redaction=enable_pii_redaction,

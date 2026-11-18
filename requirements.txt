@@ -4,6 +4,8 @@ nltk==3.9.1
 
 unstructured==0.18.14
 unstructured[pdf]==0.18.14
+pypdf>=4.0.0
+numpy>=1.26.0
 
 langchain==0.3.27
 langchain-community==0.3.29

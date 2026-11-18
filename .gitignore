@@ -221,3 +221,6 @@ __marimo__/
 # Vector stores
 /vector_db/
 /chapters_vector_db/
+
+# Runtime Trustworthiness Audit & Feedback Logs (local privacy)
+/logs/

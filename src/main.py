@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from typing import Any, Dict, List, Optional
 
 import streamlit as st
@@ -8,9 +9,14 @@ from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from chatbot_utility import get_chapter_list, map_chapter_to_filter
-from get_yt_video import get_yt_video_link
-from trustworthiness import (
+working_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(working_dir)
+if working_dir not in sys.path:
+    sys.path.insert(0, working_dir)
+
+from chatbot_utility import get_chapter_list, map_chapter_to_filter  # noqa: E402
+from get_yt_video import get_yt_video_link  # noqa: E402
+from trustworthiness import (  # noqa: E402
     PipelineConfig,
     TrustAuditLogger,
     TrustworthyRAGPipeline,
@@ -18,18 +24,28 @@ from trustworthiness import (
     run_trustworthiness_benchmark,
     save_benchmark_report,
 )
+from vectorize_book import ensure_vectorstore_populated  # noqa: E402
 
-# Load environment variables
+# Load environment variables (.env locally + Streamlit Cloud st.secrets)
 load_dotenv()
-DEVICE = os.getenv("DEVICE", "cpu")
+try:
+    for secret_key in ("GROQ_API_KEY", "GROQ_MODEL", "DEVICE"):
+        if not os.getenv(secret_key) and secret_key in st.secrets:
+            os.environ[secret_key] = str(st.secrets[secret_key])
+except Exception:
+    pass
 
-working_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(working_dir)
+DEVICE = os.getenv("DEVICE", "cpu")
 
 SUBJECTS_LIST = [
     "Biology (Class 12)",
     "Operating Systems (B.Tech)",
 ]
+
+SUBJECT_DATA_DIRS = {
+    "Biology (Class 12)": os.path.join("class_12", "biology"),
+    "Operating Systems (B.Tech)": "operating_systems",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -62,13 +78,25 @@ def get_vector_db_path(chapter: str, subject: str) -> str:
     return os.path.join(parent_dir, "vector_db", "class_12_biology_vector_db")
 
 
-@st.cache_resource(show_spinner="Opening textbook vector store...")
-def load_vectorstore(vector_db_path: str) -> Chroma:
+@st.cache_resource(
+    show_spinner="Preparing textbook vector store (first cloud launch auto-indexes PDFs with page provenance)..."
+)
+def load_vectorstore(vector_db_path: str, selected_subject: str) -> Chroma:
     embeddings = load_embeddings()
-    return Chroma(
+    os.makedirs(vector_db_path, exist_ok=True)
+    vectorstore = Chroma(
         persist_directory=vector_db_path,
         embedding_function=embeddings,
+        collection_metadata={"hnsw:space": "cosine"},
     )
+    data_subdir = SUBJECT_DATA_DIRS.get(selected_subject)
+    if data_subdir:
+        ensure_vectorstore_populated(
+            vectorstore=vectorstore,
+            class_subject_name=data_subdir,
+            subject_label=selected_subject,
+        )
+    return vectorstore
 
 
 @st.cache_resource(show_spinner=False)
@@ -80,7 +108,7 @@ def load_llm() -> ChatGroq:
 def build_pipeline(selected_chapter: str, selected_subject: str) -> TrustworthyRAGPipeline:
     vector_db_path = get_vector_db_path(selected_chapter, selected_subject)
     embeddings = load_embeddings()
-    vectorstore = load_vectorstore(vector_db_path)
+    vectorstore = load_vectorstore(vector_db_path, selected_subject)
     llm = load_llm()
 
     # Apply metadata chapter filtering when using a full-subject vector store

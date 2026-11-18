@@ -304,20 +304,38 @@ def _run_retrieval_and_abstention_suite(
     abstention_threshold: float = 0.30,
 ) -> Dict[str, Any]:
     from langchain_chroma import Chroma
+    from vectorize_book import ensure_vectorstore_populated
 
     vector_db_root = os.path.join(project_root, "vector_db")
     stores: Dict[str, Any] = {}
+    db_to_subject = {
+        "class_12_biology_vector_db": (
+            os.path.join("class_12", "biology"),
+            "Biology (Class 12)",
+        ),
+        "operating_systems_vector_db": (
+            "operating_systems",
+            "Operating Systems (B.Tech)",
+        ),
+    }
 
     def _get_store(db_name: str):
         if db_name not in stores:
             db_path = os.path.join(vector_db_root, db_name)
-            if not os.path.exists(db_path):
-                stores[db_name] = None
-            else:
-                stores[db_name] = Chroma(
-                    persist_directory=db_path,
-                    embedding_function=embeddings,
+            os.makedirs(db_path, exist_ok=True)
+            store = Chroma(
+                persist_directory=db_path,
+                embedding_function=embeddings,
+                collection_metadata={"hnsw:space": "cosine"},
+            )
+            if db_name in db_to_subject:
+                subdir, label = db_to_subject[db_name]
+                ensure_vectorstore_populated(
+                    vectorstore=store,
+                    class_subject_name=subdir,
+                    subject_label=label,
                 )
+            stores[db_name] = store
         return stores[db_name]
 
     in_domain_details = []

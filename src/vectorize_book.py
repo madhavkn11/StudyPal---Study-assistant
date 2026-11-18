@@ -123,15 +123,12 @@ def _reset_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def vectorize_book_and_store_to_db(
+def load_subject_chunks(
     class_subject_name: str,
-    vector_db_name: str,
     subject_label: Optional[str] = None,
-) -> int:
+) -> List[Document]:
+    """Load and chunk all PDFs for a subject directory with page/chapter/SHA-256 metadata."""
     book_dir = os.path.join(data_dir, class_subject_name)
-    vector_db_path = os.path.join(vector_db_dir, vector_db_name)
-
-    print(f"Indexing book_dir={book_dir} (exists={os.path.exists(book_dir)})")
     if not os.path.exists(book_dir):
         raise FileNotFoundError(f"Textbook directory not found: {book_dir}")
 
@@ -155,18 +152,60 @@ def vectorize_book_and_store_to_db(
         file_chunks = load_and_chunk_pdf(pdf_path, subject_label=subject_label)
         print(f"  Loaded {pdf_file}: {len(file_chunks)} chunks")
         all_chunks.extend(file_chunks)
+    return all_chunks
+
+
+def ensure_vectorstore_populated(
+    vectorstore: Chroma,
+    class_subject_name: str,
+    subject_label: Optional[str] = None,
+    batch_size: int = 128,
+) -> int:
+    """
+    Auto-index textbook PDFs in memory-safe batches if a ChromaDB store is empty.
+    Enables zero-manual-setup deployments on Streamlit Community Cloud where
+    vector_db/ is gitignored.
+    """
+    try:
+        existing_count = vectorstore._collection.count()
+    except Exception:
+        existing_count = 0
+
+    if existing_count > 0:
+        return existing_count
+
+    chunks = load_subject_chunks(class_subject_name, subject_label=subject_label)
+    if not chunks:
+        return 0
+
+    for start in range(0, len(chunks), batch_size):
+        vectorstore.add_documents(chunks[start : start + batch_size])
+    return len(chunks)
+
+
+def vectorize_book_and_store_to_db(
+    class_subject_name: str,
+    vector_db_name: str,
+    subject_label: Optional[str] = None,
+) -> int:
+    book_dir = os.path.join(data_dir, class_subject_name)
+    vector_db_path = os.path.join(vector_db_dir, vector_db_name)
+
+    print(f"Indexing book_dir={book_dir} (exists={os.path.exists(book_dir)})")
+    all_chunks = load_subject_chunks(class_subject_name, subject_label=subject_label)
 
     if not all_chunks:
         print(f"Warning: no text chunks extracted from {book_dir}")
         return 0
 
     _reset_dir(vector_db_path)
-    Chroma.from_documents(
-        documents=all_chunks,
-        embedding=get_embeddings(),
+    store = Chroma(
         persist_directory=vector_db_path,
+        embedding_function=get_embeddings(),
         collection_metadata={"hnsw:space": "cosine"},
     )
+    for start in range(0, len(all_chunks), 128):
+        store.add_documents(all_chunks[start : start + 128])
     print(f"Saved {len(all_chunks)} chunks to {vector_db_path}")
     return len(all_chunks)
 

@@ -73,7 +73,8 @@ def load_vectorstore(vector_db_path: str) -> Chroma:
 
 @st.cache_resource(show_spinner=False)
 def load_llm() -> ChatGroq:
-    return ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+    model_name = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    return ChatGroq(model=model_name, temperature=0)
 
 
 def build_pipeline(selected_chapter: str, selected_subject: str) -> TrustworthyRAGPipeline:

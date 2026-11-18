@@ -132,7 +132,7 @@ def build_decision_trace(
 
     trace.append(
         {
-            "stage": "4. Grounded Generation (Llama 3.3 70B)",
+            "stage": "4. Grounded Generation (Groq LLM)",
             "status": "OK",
             "detail": "Generated response constrained strictly to numbered textbook excerpts [S1..Sk] at temperature=0.",
         }
@@ -219,7 +219,7 @@ def get_system_card(project_root: str) -> Dict[str, Any]:
             "Processing sensitive personal data (PII is automatically redacted locally).",
         ],
         "architecture": {
-            "llm": "Groq Cloud — Llama 3.3 70B Versatile (temperature = 0 for deterministic grounding)",
+            "llm": "Groq Cloud — openai/gpt-oss-120b (configurable via GROQ_MODEL, temperature = 0 for deterministic grounding)",
             "embeddings": "Local HuggingFace sentence-transformers/all-MiniLM-L6-v2 (384-dim, runs on CPU)",
             "vector_store": "Local ChromaDB with cosine similarity & chapter/page provenance metadata",
             "video_lookup": "yt-dlp metadata search using PII-sanitized academic queries (optional toggle)",

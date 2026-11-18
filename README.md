@@ -33,7 +33,7 @@ StudyPal is a **Trustworthy Retrieval-Augmented Generation (RAG)** study assista
 | Layer | Technology |
 |---|---|
 | Frontend & Trust Dashboard | Streamlit |
-| LLM | Groq API — Llama 3.3 70B Versatile (`temperature=0`) |
+| LLM | Groq API — `openai/gpt-oss-120b` (`temperature=0`, configurable via `GROQ_MODEL`) |
 | Orchestration & Trust Pipeline | LangChain + Custom `src/trustworthiness/` Suite |
 | Local Embeddings & Faithfulness | HuggingFace `all-MiniLM-L6-v2` (local CPU, offline-capable) |
 | Vector Database | ChromaDB (cosine space + page/chapter/SHA-256 metadata) |
@@ -159,4 +159,6 @@ Generates fresh reports in `reports/trustworthiness_evaluation.json` and `report
 ## Author
 
 **Madhav Karthik Nambi**  
-GitHub: `madhavkn11`
+GitHub: `madhavkn11`  
+
+Live link: https://studypal---study-assistant.streamlit.app/

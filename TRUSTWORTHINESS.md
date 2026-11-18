@@ -16,7 +16,7 @@ flowchart TD
     P2 -- "Allowed" --> R["3. Chapter-Scoped Semantic Retrieval (ChromaDB + Exact Cosine Score)"]
     R --> G{"4. Grounding & Abstention Gate (top_sim >= threshold?)"}
     G -- "No (Strict Mode)" --> A["Deterministic Safe Abstention + Audit Log"]
-    G -- "Yes" --> L["5. Grounded LLM Synthesis (Groq Llama 3.3 70B, temp=0, inline [S#] citations)"]
+    G -- "Yes" --> L["5. Grounded LLM Synthesis (Groq openai/gpt-oss-120b, temp=0, inline [S#] citations)"]
     L --> O["6. Output Safety & Prompt-Leak Audit"]
     O --> F["7. Post-Generation Claim-by-Claim Faithfulness & Citation Verifier"]
     F --> T["8. Calibrated Composite Trust Score + Provenance Viewer + Human Feedback + Audit Log"]
@@ -103,7 +103,7 @@ Additionally, all **12 automated unit & integration tests** in `tests/test_trust
 | Vector Database (`ChromaDB`) | 100% Local (`vector_db/`, `chapters_vector_db/`) | None |
 | Privacy Shield (PII Detection & Redaction) | 100% Local | None (blocks raw PII before egress) |
 | Audit & Human Feedback Logs (`logs/*.jsonl`) | 100% Local (gitignored) | None (stores only sanitized queries) |
-| Answer Generation (`Groq Llama 3.3 70B`) | Groq Cloud API | PII-redacted question + retrieved textbook chunks only |
+| Answer Generation (`Groq openai/gpt-oss-120b`) | Groq Cloud API | PII-redacted question + retrieved textbook chunks only |
 | Video Recommendations (`yt-dlp`, optional) | YouTube Metadata Search | PII-redacted, subject-scoped keywords only (skipped on blocked/abstained turns) |
 
 ---
